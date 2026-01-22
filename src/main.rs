@@ -21,7 +21,7 @@ use embedded_hal::digital::{InputPin, OutputPin};
 use hal::fugit::ExtU32;
 use hal::{
     clocks::{init_clocks_and_plls, Clock},
-    pac,
+    gpio, pac,
     sio::Sio,
     usb::UsbBus,
     watchdog::Watchdog,
@@ -104,19 +104,22 @@ fn main() -> ! {
         },
     );
     let mut dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
-    //rows 27 28 26 22
-    //cols 21 4 5 6 7
-
-    let mut col0 = pins.gpio21.into_pull_down_input();
-    let mut col1 = pins.gpio4.into_pull_down_input();
-    let mut col2 = pins.gpio5.into_pull_down_input();
+    //LEFT SIDE
+    //rows: 27 28 26 22
+    //cols: 21 4 5 6 7
+    //
+    //RIGHT SIDE
+    //rows: 22 26 27 20
+    //cols: 9 8 7 6 5
+    let mut col0 = pins.gpio9.into_pull_down_input();
+    let mut col1 = pins.gpio8.into_pull_down_input();
+    let mut col2 = pins.gpio7.into_pull_down_input();
     let mut col3 = pins.gpio6.into_pull_down_input();
-    let mut col4 = pins.gpio7.into_pull_down_input();
+    let mut col4 = pins.gpio5.into_pull_down_input();
 
-    let mut row0 = pins.gpio27.into_push_pull_output();
-    let mut row1 = pins.gpio28.into_push_pull_output();
-    let mut row2 = pins.gpio26.into_push_pull_output();
-    //let mut row3 = pins.gpio22.into_push_pull_output();
+    let mut row0 = pins.gpio22.into_push_pull_output();
+    let mut row1 = pins.gpio26.into_push_pull_output();
+    let mut row2 = pins.gpio27.into_push_pull_output();
 
     let cols: &mut [Column] = &mut [&mut col0, &mut col1, &mut col2, &mut col3, &mut col4];
     let rows: &mut [Row] = &mut [&mut row0, &mut row1, &mut row2];
@@ -137,9 +140,57 @@ fn main() -> ! {
         hid.pull_raw_output(&mut [0; 64]).ok();
     }
 }
+pub enum Side {
+    LEFT,
+    RIGHT,
+}
+
+/*
+pub fn initialize_split(
+    side: Side,
+    pins: gpio::bank0::Pins,
+) -> ([Column<'static>; COLS], [Row<'static>; ROWS], SideConfig) {
+    match side {
+        Side::LEFT => {
+            let mut col0 = pins.gpio21.into_pull_down_input();
+            let mut col1 = pins.gpio4.into_pull_down_input();
+            let mut col2 = pins.gpio5.into_pull_down_input();
+            let mut col3 = pins.gpio6.into_pull_down_input();
+            let mut col4 = pins.gpio7.into_pull_down_input();
+
+            let mut row0 = pins.gpio27.into_push_pull_output();
+            let mut row1 = pins.gpio28.into_push_pull_output();
+            let mut row2 = pins.gpio26.into_push_pull_output();
+            return (
+                [&mut col0, &mut col1, &mut col2, &mut col3, &mut col4],
+                [&mut row0, &mut row1, &mut row2],
+                L_LAYER,
+            );
+        }
+        Side::RIGHT => {
+            let mut col0 = pins.gpio21.into_pull_down_input();
+            let mut col1 = pins.gpio4.into_pull_down_input();
+            let mut col2 = pins.gpio5.into_pull_down_input();
+            let mut col3 = pins.gpio6.into_pull_down_input();
+            let mut col4 = pins.gpio7.into_pull_down_input();
+
+            let mut row0 = pins.gpio27.into_push_pull_output();
+            let mut row1 = pins.gpio28.into_push_pull_output();
+            let mut row2 = pins.gpio26.into_push_pull_output();
+            return (
+                [&mut col0, &mut col1, &mut col2, &mut col3, &mut col4],
+                [&mut row0, &mut row1, &mut row2],
+                L_LAYER,
+            );
+        }
+    }
+}
+*/
+
 pub type Column<'a> = &'a mut dyn InputPin<Error = Infallible>;
 pub type Row<'a> = &'a mut dyn OutputPin<Error = Infallible>;
 pub type StateMatrix = [[bool; COLS]; ROWS];
+pub type SideConfig = [[KeyCode; COLS]; ROWS];
 
 fn scan_keys(rows: &mut [Row], cols: &mut [Column], delay: &mut Delay) -> StateMatrix {
     let mut matrix: StateMatrix = [[false; COLS]; ROWS];
@@ -154,8 +205,12 @@ fn scan_keys(rows: &mut [Row], cols: &mut [Column], delay: &mut Delay) -> StateM
     }
     matrix
 }
-
-pub const LEFT_LAYER: [[KeyCode; COLS]; ROWS] = [[A, B, C, D, E], [A, B, C, D, E], [A, B, C, D, E]];
+pub const L_LAYER: [[KeyCode; COLS]; ROWS] = [[T, R, E, W, Q], [G, F, D, S, A], [B, V, C, X, Z]];
+pub const R_LAYER: [[KeyCode; COLS]; ROWS] = [
+    [Y, U, I, O, P],
+    [H, J, K, L, Semicolon],
+    [N, M, Comma, Period, Slash],
+];
 
 fn build_report(matrix: &StateMatrix) -> KeyboardReport {
     let mut keycodes = [0u8; 6];
@@ -168,7 +223,7 @@ fn build_report(matrix: &StateMatrix) -> KeyboardReport {
     for (row_idx, row) in matrix.iter().enumerate() {
         for (col_idx, &pressed) in row.iter().enumerate() {
             if pressed {
-                push_key(LEFT_LAYER[row_idx][col_idx] as u8);
+                push_key(R_LAYER[row_idx][col_idx] as u8);
             }
         }
     }
