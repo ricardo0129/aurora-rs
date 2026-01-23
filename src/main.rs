@@ -32,14 +32,14 @@ use usbd::{
     device::{UsbDeviceBuilder, UsbVidPid},
 };
 
+use crate::key_codes::KeyCode::{self, *};
+use hal::gpio::{DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullNone, PullUp};
 use usbd_hid::{
     descriptor::{KeyboardReport, SerializedDescriptor},
     hid_class::{
         HIDClass, HidClassSettings, HidCountryCode, HidProtocol, HidSubClass, ProtocolModeConfig,
     },
 };
-
-use crate::key_codes::KeyCode::{self, *};
 
 #[link_section = ".boot2"]
 #[used]
@@ -104,25 +104,29 @@ fn main() -> ! {
         },
     );
     let mut dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
-    //LEFT SIDE
-    //rows: 27 28 26 22
-    //cols: 21 4 5 6 7
-    //
-    //RIGHT SIDE
-    //rows: 22 26 27 20
-    //cols: 9 8 7 6 5
-    let mut col0 = pins.gpio9.into_pull_down_input();
-    let mut col1 = pins.gpio8.into_pull_down_input();
-    let mut col2 = pins.gpio7.into_pull_down_input();
-    let mut col3 = pins.gpio6.into_pull_down_input();
-    let mut col4 = pins.gpio5.into_pull_down_input();
+    let side: Side = Side::LEFT;
+    /*
+        let cols = match side {
+            Side::LEFT => [
+                pins.gpio9.into_pull_down_input(),
+                pins.gpio8.into_pull_down_input(),
+                pins.gpio7.into_pull_down_input(),
+                pins.gpio6.into_pull_down_input(),
+                pins.gpio5.into_pull_down_input(),
+            ],
+            Side::RIGHT => [
+                pins.gpio21.into_pull_down_input(),
+                pins.gpio4.into_pull_down_input(),
+                pins.gpio5.into_pull_down_input(),
+                pins.gpio6.into_pull_down_input(),
+                pins.gpio7.into_pull_down_input(),
+            ],
+        };
+    */
+    /*
+     */
+    let (mut cols, mut rows) = initialize_split(side, pins);
 
-    let mut row0 = pins.gpio22.into_push_pull_output();
-    let mut row1 = pins.gpio26.into_push_pull_output();
-    let mut row2 = pins.gpio27.into_push_pull_output();
-
-    let cols: &mut [Column] = &mut [&mut col0, &mut col1, &mut col2, &mut col3, &mut col4];
-    let rows: &mut [Row] = &mut [&mut row0, &mut row1, &mut row2];
     let mut scan_countdown = timer.count_down();
     scan_countdown.start(10u32.millis());
 
@@ -131,7 +135,7 @@ fn main() -> ! {
 
         if scan_countdown.wait().is_ok() {
             info!("scan keys");
-            let state = scan_keys(rows, cols, &mut delay);
+            let state = scan_keys(&mut rows, &mut cols, &mut delay);
             debug!("build report");
             let report = build_report(&state);
             hid.push_input(&report).ok();
@@ -144,6 +148,67 @@ pub enum Side {
     LEFT,
     RIGHT,
 }
+
+pub fn initialize_split(side: Side, pins: gpio::bank0::Pins) -> ([Column; COLS], [Row; ROWS]) {
+    match side {
+        //LEFT SIDE
+        //rows: 27 28 26 22
+        //cols: 21 4 5 6 7
+        Side::LEFT => {
+            let cols: [Column; COLS] = [
+                pins.gpio21.into_pull_down_input().into_dyn_pin(),
+                pins.gpio4.into_pull_down_input().into_dyn_pin(),
+                pins.gpio5.into_pull_down_input().into_dyn_pin(),
+                pins.gpio6.into_pull_down_input().into_dyn_pin(),
+                pins.gpio7.into_pull_down_input().into_dyn_pin(),
+            ];
+
+            let rows: [Row; ROWS] = [
+                pins.gpio27
+                    .into_push_pull_output()
+                    .into_pull_type()
+                    .into_dyn_pin(),
+                pins.gpio28
+                    .into_push_pull_output()
+                    .into_pull_type()
+                    .into_dyn_pin(),
+                pins.gpio26
+                    .into_push_pull_output()
+                    .into_pull_type()
+                    .into_dyn_pin(),
+            ];
+            (cols, rows)
+        }
+        //RIGHT SIDE
+        //rows: 22 26 27 20
+        //cols: 9 8 7 6 5
+        Side::RIGHT => {
+            let cols: [Column; COLS] = [
+                pins.gpio9.into_pull_down_input().into_dyn_pin(),
+                pins.gpio8.into_pull_down_input().into_dyn_pin(),
+                pins.gpio7.into_pull_down_input().into_dyn_pin(),
+                pins.gpio6.into_pull_down_input().into_dyn_pin(),
+                pins.gpio5.into_pull_down_input().into_dyn_pin(),
+            ];
+            let rows: [Row; ROWS] = [
+                pins.gpio22
+                    .into_push_pull_output()
+                    .into_pull_type()
+                    .into_dyn_pin(),
+                pins.gpio26
+                    .into_push_pull_output()
+                    .into_pull_type()
+                    .into_dyn_pin(),
+                pins.gpio27
+                    .into_push_pull_output()
+                    .into_pull_type()
+                    .into_dyn_pin(),
+            ];
+            (cols, rows)
+        }
+    }
+}
+//pub type Column<'a> = &'a mut dyn InputPin<Error = Infallible>;
 
 /*
 pub fn initialize_split(
@@ -187,12 +252,14 @@ pub fn initialize_split(
 }
 */
 
-pub type Column<'a> = &'a mut dyn InputPin<Error = Infallible>;
-pub type Row<'a> = &'a mut dyn OutputPin<Error = Infallible>;
+//pub type Column<'a> = &'a mut dyn InputPin<Error = Infallible>;
+pub type Column = Pin<DynPinId, FunctionSioInput, PullDown>;
+//pub type Row<'a> = &'a mut dyn OutputPin<Error = Infallible>;
+pub type Row = Pin<DynPinId, FunctionSioOutput, PullNone>;
 pub type StateMatrix = [[bool; COLS]; ROWS];
 pub type SideConfig = [[KeyCode; COLS]; ROWS];
 
-fn scan_keys(rows: &mut [Row], cols: &mut [Column], delay: &mut Delay) -> StateMatrix {
+fn scan_keys(rows: &mut [Row; ROWS], cols: &mut [Column; COLS], delay: &mut Delay) -> StateMatrix {
     let mut matrix: StateMatrix = [[false; COLS]; ROWS];
     for (gpio_row, matrix_row) in rows.iter_mut().zip(matrix.iter_mut()) {
         gpio_row.set_high().unwrap();
@@ -223,7 +290,7 @@ fn build_report(matrix: &StateMatrix) -> KeyboardReport {
     for (row_idx, row) in matrix.iter().enumerate() {
         for (col_idx, &pressed) in row.iter().enumerate() {
             if pressed {
-                push_key(R_LAYER[row_idx][col_idx] as u8);
+                push_key(L_LAYER[row_idx][col_idx] as u8);
             }
         }
     }
