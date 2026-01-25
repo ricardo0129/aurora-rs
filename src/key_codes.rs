@@ -1,3 +1,4 @@
+//https://github.com/hathach/tinyusb/blob/master/src/class/hid/hid.h
 #[allow(unused)]
 #[repr(u8)]
 #[derive(Copy, Clone)]
