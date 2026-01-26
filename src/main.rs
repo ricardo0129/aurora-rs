@@ -3,8 +3,9 @@
 //! If a LED is connected to that pin, like on a Pico board, the LED should blink.
 #![no_std]
 #![no_main]
-
+use cortex_m::singleton;
 use hal::clocks::{init_clocks_and_plls, Clock};
+use hal::dma::{double_buffer, single_buffer, DMAExt};
 use hal::gpio::{FunctionPio0, Pin};
 use hal::pac;
 use hal::pio::PIOExt;
@@ -12,7 +13,7 @@ use hal::watchdog::Watchdog;
 use hal::Sio;
 use panic_halt as _;
 use rp2040_hal as hal;
-use rp2040_hal::pio::Tx; // important! brings the write() method into scope
+use rp2040_hal::pio::{Buffers, Tx}; // important! brings the write() method into scope
 
 /// The linker will place this boot block at the start of our program image. We
 /// need this to help the ROM bootloader get our code up and running.
@@ -22,7 +23,7 @@ use rp2040_hal::pio::Tx; // important! brings the write() method into scope
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
 pub fn color_as_u32(red: u8, green: u8, blue: u8) -> u32 {
-    let color: u32 = ((blue as u32) << 16) | ((red as u32) << 8) | (green as u32);
+    let color: u32 = ((green as u32) << 16) | ((red as u32) << 8) | (blue as u32);
     color
 }
 
@@ -64,7 +65,7 @@ fn main() -> ! {
     // PIN id for use inside of PIO
     let led_pin_id = led.id().num;
 
-    let (T1, T2, T3) = (4, 6, 2);
+    let (t1, t2, t3) = (4, 6, 2);
     // Define some simple PIO program.
     let program = pio_proc::pio_asm!(
         ".side_set 1",
@@ -79,51 +80,42 @@ fn main() -> ! {
         "   jmp bitloop     side 1 [T2 - 1]",
         "do_zero:",
         "   nop             side 0 [T2 - 1]",
-        ".wrap",
+        ".wrap"
     );
 
     // Initialize and start PIO
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
     let installed = pio.install(&program.program).unwrap();
     let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
-    let bit_freq = 800_000.0 * (T1 + T2 + T3) as f32;
+    let bit_freq = 800_000.0 * (t1 + t2 + t3) as f32;
     let div = sys_clk / bit_freq;
 
     let int = div as u16;
-    let frac = ((div - int as f32) * 256.0) as u8;
-    /*
-        let (mut sm, _, mut tx) = rp2040_hal::pio::PIOBuilder::from_installed_program(installed)
-            .set_pins(led_pin_id, 1)
-            .clock_divisor_fixed_point(int, frac)
-            .build(sm0);
-    */
+    let frac = (((div - int as f32) * 256.0) + 0.5) as u8;
     let (mut sm, _, mut tx) = rp2040_hal::pio::PIOBuilder::from_installed_program(installed)
         .out_shift_direction(rp2040_hal::pio::ShiftDirection::Right)
         .autopull(true)
         .pull_threshold(24)
         .side_set_pin_base(led_pin_id)
         .clock_divisor_fixed_point(int, frac)
+        .buffers(Buffers::OnlyTx)
         .build(sm0);
     // The GPIO pin needs to be configured as an output.
     sm.set_pindirs([(led_pin_id, hal::pio::PinDir::Output)]);
     sm.start();
+    let dma = pac.DMA.split(&mut pac.RESETS);
+    let message: [u32; 17] = [color_as_u32(255, 255, 255); 17];
+    let tx_buf = singleton!(: [u32; 17] = message).unwrap();
+    let tx_transfer = single_buffer::Config::new(dma.ch0, tx_buf, tx).start();
+    let (ch0, tx_buf, tx) = tx_transfer.wait();
 
-    let red: u8 = 0;
-    let green: u8 = 0;
-    let blue: u8 = 255;
-
-    // Pack into a 24-bit word, GRB order
-    let color: u32 = ((blue as u32) << 16) | ((red as u32) << 8) | (green as u32);
-
-    let colors: [(u8, u8, u8); 3] = [(255, 0, 0), (0, 255, 0), (0, 0, 255)];
+    const N: usize = 4;
+    let colors: [(u8, u8, u8); N] = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 255, 255)];
 
     // PIO runs in background, independently from CPU
-    let mut iter: i32 = 0;
+    let mut iter: usize = 0;
     loop {
-        let c = colors[(iter % 3) as usize];
-        for i in 0..8 {
-            tx.write(color_as_u32(c.0, c.1, c.2));
-        }
+        let c = colors[iter % N];
         cortex_m::asm::delay(125_000_000); // ~80µs @ 125MHz
         iter += 1;
     }
