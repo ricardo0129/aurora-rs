@@ -1,6 +1,11 @@
 use hal::pac::PIO0;
 use hal::pio::{Tx, UninitStateMachine};
-use rp2040_hal as hal; // important! brings the write() method into scope
+use rp2040_hal as hal;
+
+pub fn color_as_u32(red: u8, green: u8, blue: u8) -> u32 {
+    let color: u32 = ((green as u32) << 16) | ((red as u32) << 8) | (blue as u32);
+    color
+}
 
 pub type Led = u32;
 pub struct LedController<const N: usize> {
