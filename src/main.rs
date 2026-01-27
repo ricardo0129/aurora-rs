@@ -6,6 +6,7 @@ mod keyboard;
 mod sk6812;
 
 //use crate::keyboard::key_matrix;
+use crate::communication::serial::{uart_bitbang_rx, uart_bitbang_tx};
 use crate::sk6812::{color_as_u32, LedController};
 
 use cortex_m::delay::Delay;
@@ -108,7 +109,7 @@ fn main() -> ! {
     );
     let mut dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
 
-    let side: Side = Side::LEFT;
+    let side: Side = Side::RIGHT;
     let key_mapping = match side {
         Side::LEFT => &L_LAYER,
         Side::RIGHT => &R_LAYER,

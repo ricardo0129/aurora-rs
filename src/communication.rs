@@ -1,1 +1,1 @@
-pub mod uart;
+pub mod serial;

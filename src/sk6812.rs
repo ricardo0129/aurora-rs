@@ -2,6 +2,7 @@ use hal::pac::PIO0;
 use hal::pio::{Tx, UninitStateMachine};
 use rp2040_hal as hal;
 
+const LED_FREQUENCY: f32 = 800_000.0;
 pub fn color_as_u32(red: u8, green: u8, blue: u8) -> u32 {
     let color: u32 = ((green as u32) << 16) | ((red as u32) << 8) | (blue as u32);
     color
@@ -20,12 +21,13 @@ impl<const N: usize> LedController<N> {
         led_pin_id: u8,
         sys_clk: f32,
     ) -> Self {
+        //Compute the pio frequency based on cycles per bit
         let (t1, t2, t3) = (4, 6, 2);
-        let bit_freq = 800_000.0 * (t1 + t2 + t3) as f32;
+        let bit_freq = LED_FREQUENCY * (t1 + t2 + t3) as f32;
         let div = sys_clk / bit_freq;
-
         let int = div as u16;
         let frac = (((div - int as f32) * 256.0) + 0.5) as u8;
+
         let program = pio_proc::pio_asm!(
             ".side_set 1",
             ".define public T1 4",
