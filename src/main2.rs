@@ -3,6 +3,7 @@
 mod communication;
 mod key_codes;
 mod keyboard;
+mod sk6812;
 
 use crate::keyboard::key_matrix;
 
