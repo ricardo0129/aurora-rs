@@ -114,37 +114,73 @@ fn main() -> ! {
         Side::LEFT => &L_LAYER,
         Side::RIGHT => &R_LAYER,
     };
-    let (mut cols, mut rows, led_pin) = initialize_pins(&side, pins);
-
-    let led_pin_id: u8 = led_pin.id().num;
-    let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
-    let mut leds: LedController<17> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
-
-    let mut scan_countdown = timer.count_down();
-    scan_countdown.start(10u32.millis());
-    let colors: [u32; 3] = [
-        color_as_u32(0, 120, 0),
-        color_as_u32(20, 30, 20),
-        color_as_u32(127, 44, 12),
-    ];
-    for i in 0..17 {
-        leds.set_pixel(i, colors[0]);
-    }
-    leds.show();
-    loop {
-        dev.poll(&mut [&mut hid]);
-
-        if scan_countdown.wait().is_ok() {
-            info!("scan keys");
-            let state = scan_keys(&mut rows, &mut cols, &mut delay);
-            debug!("build report");
-            let report = build_report(&state, key_mapping);
-            hid.push_input(&report).ok();
+    /*
+        let mut data_pin = pins.gpio10.into_push_pull_output();
+        data_pin.set_low().unwrap();
+        let mut input_pin = data_pin.into_floating_input();
+        let res = input_pin.is_high().unwrap();
+        let mut data_pin = input_pin.into_push_pull_output();
+        data_pin.set_high();
+        loop {}
+    */
+    let mut led_pin = pins.gpio17.into_push_pull_output();
+    match side {
+        Side::LEFT => {
+            let mut data_pin = pins.gpio0.into_pull_down_input().into_dyn_pin();
+            loop {
+                let data = uart_bitbang_rx(&mut data_pin, &mut delay);
+                if data > 0 {
+                    led_pin.set_high().unwrap();
+                    break;
+                }
+            }
         }
-        // drop received data
-        hid.pull_raw_output(&mut [0; 64]).ok();
+        Side::RIGHT => {
+            let mut data_pin = pins
+                .gpio0
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin();
+            loop {
+                uart_bitbang_tx(0x55_u8, &mut data_pin, &mut delay);
+            }
+        }
     }
+    loop {}
+
+    /*
+        let (mut cols, mut rows, led_pin) = initialize_pins(&side, pins);
+
+        let led_pin_id: u8 = led_pin.id().num;
+        let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
+        let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
+        let mut leds: LedController<17> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
+
+        let mut scan_countdown = timer.count_down();
+        scan_countdown.start(10u32.millis());
+        let colors: [u32; 3] = [
+            color_as_u32(0, 120, 0),
+            color_as_u32(20, 30, 20),
+            color_as_u32(127, 44, 12),
+        ];
+        for i in 0..17 {
+            leds.set_pixel(i, colors[0]);
+        }
+        leds.show();
+        loop {
+            dev.poll(&mut [&mut hid]);
+
+            if scan_countdown.wait().is_ok() {
+                info!("scan keys");
+                let state = scan_keys(&mut rows, &mut cols, &mut delay);
+                debug!("build report");
+                let report = build_report(&state, key_mapping);
+                hid.push_input(&report).ok();
+            }
+            // drop received data
+            hid.pull_raw_output(&mut [0; 64]).ok();
+        }
+    */
 }
 pub enum Side {
     LEFT,
