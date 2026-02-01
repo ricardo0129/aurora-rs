@@ -3,10 +3,12 @@
 mod communication;
 mod key_codes;
 mod keyboard;
+mod layout;
 mod sk6812;
 
-//use crate::keyboard::key_matrix;
 use crate::communication::serial::{serial_read_byte, serial_write_byte};
+use crate::keyboard::key_matrix;
+use crate::keyboard::Side;
 use crate::sk6812::{color_as_u32, LedController};
 
 use cortex_m::delay::Delay;
@@ -37,7 +39,7 @@ use crate::key_codes::KeyCode::{self, *};
 use hal::fugit::ExtU32;
 //use hal::fugit::RateExtU32;
 use hal::gpio::{
-    DynPinId, FunctionPio0, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullNone,
+    DynPinId, FunctionPio0, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullNone, PullUp,
 };
 use hal::pio::PIOExt;
 //use hal::uart::{DataBits, StopBits, UartConfig};
@@ -51,8 +53,6 @@ use usbd_hid::{
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
 
-const ROWS: usize = 3;
-const COLS: usize = 5;
 const PIN_READ_DELAY: u32 = 1;
 
 #[rp2040_hal::entry]
@@ -111,96 +111,58 @@ fn main() -> ! {
 
     let side: Side = Side::LEFT;
     let key_mapping = match side {
-        Side::LEFT => &L_LAYER,
-        Side::RIGHT => &R_LAYER,
+        Side::LEFT => &layout::L_LAYER,
+        Side::RIGHT => &layout::R_LAYER,
     };
-    /*
-        let mut data_pin = pins.gpio10.into_push_pull_output();
-        data_pin.set_low().unwrap();
-        let mut input_pin = data_pin.into_floating_input();
-        let res = input_pin.is_high().unwrap();
-        let mut data_pin = input_pin.into_push_pull_output();
-        data_pin.set_high();
-        loop {}
-    */
-    let mut led_pin = pins.gpio17.into_push_pull_output();
-    match side {
-        Side::LEFT => {
-            let mut data_pin = pins.gpio1.into_pull_down_input().into_dyn_pin();
-            loop {
-                let data = serial_read_byte(&mut data_pin, &mut delay);
-                if data == 0x55_u8 {
-                    led_pin.set_high().unwrap();
-                    break;
-                }
-            }
-        }
-        Side::RIGHT => {
-            let mut data_pin = pins
-                .gpio1
-                .into_push_pull_output()
-                .into_pull_type()
-                .into_dyn_pin();
-            loop {
-                serial_write_byte(0x55_u8, &mut data_pin, &mut delay);
-            }
-        }
+
+    let (mut cols, mut rows, led_pin, mut data_pin) = initialize_pins(&side, pins);
+
+    let led_pin_id: u8 = led_pin.id().num;
+    let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
+    let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
+    let mut leds: LedController<17> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
+
+    let mut scan_countdown = timer.count_down();
+    scan_countdown.start(10u32.millis());
+    let colors: [u32; 3] = [
+        color_as_u32(0, 120, 0),
+        color_as_u32(20, 30, 20),
+        color_as_u32(127, 44, 12),
+    ];
+    for i in 0..17 {
+        leds.set_pixel(i, colors[0]);
     }
-    loop {}
+    leds.show();
+    loop {
+        dev.poll(&mut [&mut hid]);
 
-    /*
-        let (mut cols, mut rows, led_pin) = initialize_pins(&side, pins);
-
-        let led_pin_id: u8 = led_pin.id().num;
-        let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-        let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
-        let mut leds: LedController<17> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
-
-        let mut scan_countdown = timer.count_down();
-        scan_countdown.start(10u32.millis());
-        let colors: [u32; 3] = [
-            color_as_u32(0, 120, 0),
-            color_as_u32(20, 30, 20),
-            color_as_u32(127, 44, 12),
-        ];
-        for i in 0..17 {
-            leds.set_pixel(i, colors[0]);
+        if scan_countdown.wait().is_ok() {
+            info!("scan keys");
+            let state = scan_keys(&mut rows, &mut cols, &mut delay);
+            debug!("build report");
+            let report = build_report(&state, key_mapping);
+            hid.push_input(&report).ok();
         }
-        leds.show();
-        loop {
-            dev.poll(&mut [&mut hid]);
-
-            if scan_countdown.wait().is_ok() {
-                info!("scan keys");
-                let state = scan_keys(&mut rows, &mut cols, &mut delay);
-                debug!("build report");
-                let report = build_report(&state, key_mapping);
-                hid.push_input(&report).ok();
-            }
-            // drop received data
-            hid.pull_raw_output(&mut [0; 64]).ok();
-        }
-    */
-}
-pub enum Side {
-    LEFT,
-    RIGHT,
+        // drop received data
+        hid.pull_raw_output(&mut [0; 64]).ok();
+    }
 }
 
 pub fn initialize_pins(
     side: &Side,
     pins: gpio::bank0::Pins,
 ) -> (
-    [Column; COLS],
-    [Row; ROWS],
+    [Column; layout::COLS],
+    [Row; layout::ROWS],
     Pin<hal::gpio::bank0::Gpio0, FunctionPio0, PullDown>,
+    Pin<hal::gpio::bank0::Gpio1, FunctionSioOutput, PullDown>,
 ) {
     match side {
         //LEFT SIDE
         //rows: 27 28 26 22
         //cols: 21 4 5 6 7
         Side::LEFT => {
-            let cols: [Column; COLS] = [
+            let cols: [Column; layout::COLS] = [
                 pins.gpio21.into_pull_down_input().into_dyn_pin(),
                 pins.gpio4.into_pull_down_input().into_dyn_pin(),
                 pins.gpio5.into_pull_down_input().into_dyn_pin(),
@@ -208,7 +170,7 @@ pub fn initialize_pins(
                 pins.gpio7.into_pull_down_input().into_dyn_pin(),
             ];
 
-            let rows: [Row; ROWS] = [
+            let rows: [Row; layout::ROWS] = [
                 pins.gpio27
                     .into_push_pull_output()
                     .into_pull_type()
@@ -223,20 +185,21 @@ pub fn initialize_pins(
                     .into_dyn_pin(),
             ];
             let led_pin: Pin<_, FunctionPio0, _> = pins.gpio0.into_function();
-            (cols, rows, led_pin)
+            let data_pin = pins.gpio1.into_push_pull_output();
+            (cols, rows, led_pin, data_pin)
         }
         //RIGHT SIDE
         //rows: 22 26 27 20
         //cols: 9 8 7 6 5
         Side::RIGHT => {
-            let cols: [Column; COLS] = [
+            let cols: [Column; layout::COLS] = [
                 pins.gpio9.into_pull_down_input().into_dyn_pin(),
                 pins.gpio8.into_pull_down_input().into_dyn_pin(),
                 pins.gpio7.into_pull_down_input().into_dyn_pin(),
                 pins.gpio6.into_pull_down_input().into_dyn_pin(),
                 pins.gpio5.into_pull_down_input().into_dyn_pin(),
             ];
-            let rows: [Row; ROWS] = [
+            let rows: [Row; layout::ROWS] = [
                 pins.gpio22
                     .into_push_pull_output()
                     .into_pull_type()
@@ -251,17 +214,22 @@ pub fn initialize_pins(
                     .into_dyn_pin(),
             ];
             let led_pin: Pin<_, FunctionPio0, _> = pins.gpio0.into_function();
-            (cols, rows, led_pin)
+            let data_pin = pins.gpio1.into_push_pull_output();
+            (cols, rows, led_pin, data_pin)
         }
     }
 }
 pub type Column = Pin<DynPinId, FunctionSioInput, PullDown>;
 pub type Row = Pin<DynPinId, FunctionSioOutput, PullNone>;
-pub type StateMatrix = [[bool; COLS]; ROWS];
-pub type SideConfig = [[KeyCode; COLS]; ROWS];
+pub type StateMatrix = [[bool; layout::COLS]; layout::ROWS];
+pub type SideConfig = [[KeyCode; layout::COLS]; layout::ROWS];
 
-fn scan_keys(rows: &mut [Row; ROWS], cols: &mut [Column; COLS], delay: &mut Delay) -> StateMatrix {
-    let mut matrix: StateMatrix = [[false; COLS]; ROWS];
+fn scan_keys(
+    rows: &mut [Row; layout::ROWS],
+    cols: &mut [Column; layout::COLS],
+    delay: &mut Delay,
+) -> StateMatrix {
+    let mut matrix: StateMatrix = [[false; layout::COLS]; layout::ROWS];
     for (gpio_row, matrix_row) in rows.iter_mut().zip(matrix.iter_mut()) {
         gpio_row.set_high().unwrap();
         delay.delay_us(PIN_READ_DELAY);
@@ -273,14 +241,11 @@ fn scan_keys(rows: &mut [Row; ROWS], cols: &mut [Column; COLS], delay: &mut Dela
     }
     matrix
 }
-pub const L_LAYER: [[KeyCode; COLS]; ROWS] = [[T, R, E, W, Q], [G, F, D, S, A], [B, V, C, X, Z]];
-pub const R_LAYER: [[KeyCode; COLS]; ROWS] = [
-    [Y, U, I, O, P],
-    [H, J, K, L, Semicolon],
-    [N, M, Comma, Period, Slash],
-];
 
-fn build_report(matrix: &StateMatrix, key_mapping: &[[KeyCode; COLS]; ROWS]) -> KeyboardReport {
+fn build_report(
+    matrix: &StateMatrix,
+    key_mapping: &[[KeyCode; layout::COLS]; layout::ROWS],
+) -> KeyboardReport {
     let mut keycodes = [0u8; 6];
     let mut keycode_count = 0;
     let mut push_key = |keycode: u8| {
