@@ -8,10 +8,10 @@ const BIT_US: u32 = 1000000 / BAUD;
 pub type TxDataPin = Pin<DynPinId, FunctionSioOutput, PullNone>;
 pub type RxDataPin = Pin<DynPinId, FunctionSioInput, PullDown>;
 
-pub fn uart_bitbang_tx(mut byte: u8, serial: &mut TxDataPin, delay: &mut Delay) {
+pub fn serial_write_byte(mut byte: u8, serial: &mut TxDataPin, delay: &mut Delay) {
     serial.set_low();
     delay.delay_us(BIT_US);
-    for i in 0..8 {
+    for _ in 0..8 {
         if byte & 1 > 0 {
             serial.set_high();
         } else {
@@ -24,7 +24,7 @@ pub fn uart_bitbang_tx(mut byte: u8, serial: &mut TxDataPin, delay: &mut Delay) 
     delay.delay_us(BIT_US);
 }
 
-pub fn uart_bitbang_rx(serial: &mut RxDataPin, delay: &mut Delay) -> u8 {
+pub fn serial_read_byte(serial: &mut RxDataPin, delay: &mut Delay) -> u8 {
     let mut data: u8 = 0;
     while serial.is_high().expect("couldn't read from pin") {}
     delay.delay_us(BIT_US + BIT_US / 2);
@@ -38,10 +38,8 @@ pub fn uart_bitbang_rx(serial: &mut RxDataPin, delay: &mut Delay) -> u8 {
     data
 }
 
-pub fn hand_shake(serial: &mut TxDataPin, delay: &mut Delay, initiate: bool) -> bool {
-    if initiate {
-        uart_bitbang_tx(0x55_u8, serial, delay);
-        delay.delay_us(100);
-    }
-    false
+pub fn sync_recv(data_pin: &mut TxDataPin, delay: Delay) {
+    data_pin.set_high().unwrap();
 }
+
+pub fn sync_send(data_pin: &mut TxDataPin, delay: Delay) {}

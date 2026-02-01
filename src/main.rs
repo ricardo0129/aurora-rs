@@ -6,7 +6,7 @@ mod keyboard;
 mod sk6812;
 
 //use crate::keyboard::key_matrix;
-use crate::communication::serial::{uart_bitbang_rx, uart_bitbang_tx};
+use crate::communication::serial::{serial_read_byte, serial_write_byte};
 use crate::sk6812::{color_as_u32, LedController};
 
 use cortex_m::delay::Delay;
@@ -109,7 +109,7 @@ fn main() -> ! {
     );
     let mut dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
 
-    let side: Side = Side::RIGHT;
+    let side: Side = Side::LEFT;
     let key_mapping = match side {
         Side::LEFT => &L_LAYER,
         Side::RIGHT => &R_LAYER,
@@ -126,10 +126,10 @@ fn main() -> ! {
     let mut led_pin = pins.gpio17.into_push_pull_output();
     match side {
         Side::LEFT => {
-            let mut data_pin = pins.gpio0.into_pull_down_input().into_dyn_pin();
+            let mut data_pin = pins.gpio1.into_pull_down_input().into_dyn_pin();
             loop {
-                let data = uart_bitbang_rx(&mut data_pin, &mut delay);
-                if data > 0 {
+                let data = serial_read_byte(&mut data_pin, &mut delay);
+                if data == 0x55_u8 {
                     led_pin.set_high().unwrap();
                     break;
                 }
@@ -137,12 +137,12 @@ fn main() -> ! {
         }
         Side::RIGHT => {
             let mut data_pin = pins
-                .gpio0
+                .gpio1
                 .into_push_pull_output()
                 .into_pull_type()
                 .into_dyn_pin();
             loop {
-                uart_bitbang_tx(0x55_u8, &mut data_pin, &mut delay);
+                serial_write_byte(0x55_u8, &mut data_pin, &mut delay);
             }
         }
     }
