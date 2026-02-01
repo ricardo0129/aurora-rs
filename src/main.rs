@@ -7,7 +7,7 @@ mod layout;
 mod sk6812;
 
 use crate::communication::serial::{serial_read_byte, serial_write_byte};
-use crate::keyboard::key_matrix;
+use crate::keyboard::key_matrix::{scan_keys, Column, Row, StateMatrix};
 use crate::keyboard::Side;
 use crate::sk6812::{color_as_u32, LedController};
 
@@ -21,7 +21,6 @@ use panic_probe as _;
 // Provide an alias for our hal so we can switch targets quickly.
 use rp2040_hal as hal;
 
-use embedded_hal::digital::{InputPin, OutputPin};
 use hal::{
     clocks::{init_clocks_and_plls, Clock},
     gpio, pac,
@@ -52,8 +51,6 @@ use usbd_hid::{
 #[link_section = ".boot2"]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
-
-const PIN_READ_DELAY: u32 = 1;
 
 #[rp2040_hal::entry]
 fn main() -> ! {
@@ -218,28 +215,6 @@ pub fn initialize_pins(
             (cols, rows, led_pin, data_pin)
         }
     }
-}
-pub type Column = Pin<DynPinId, FunctionSioInput, PullDown>;
-pub type Row = Pin<DynPinId, FunctionSioOutput, PullNone>;
-pub type StateMatrix = [[bool; layout::COLS]; layout::ROWS];
-pub type SideConfig = [[KeyCode; layout::COLS]; layout::ROWS];
-
-fn scan_keys(
-    rows: &mut [Row; layout::ROWS],
-    cols: &mut [Column; layout::COLS],
-    delay: &mut Delay,
-) -> StateMatrix {
-    let mut matrix: StateMatrix = [[false; layout::COLS]; layout::ROWS];
-    for (gpio_row, matrix_row) in rows.iter_mut().zip(matrix.iter_mut()) {
-        gpio_row.set_high().unwrap();
-        delay.delay_us(PIN_READ_DELAY);
-        for (gpio_col, matrix_col) in cols.iter_mut().zip(matrix_row.iter_mut()) {
-            *matrix_col = gpio_col.is_high().unwrap();
-        }
-        gpio_row.set_low().unwrap();
-        delay.delay_us(PIN_READ_DELAY);
-    }
-    matrix
 }
 
 fn build_report(
