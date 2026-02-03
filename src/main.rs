@@ -6,12 +6,11 @@ mod keyboard;
 mod layout;
 mod sk6812;
 
-use crate::communication::serial::{serial_read_byte, serial_write_byte};
 use crate::keyboard::key_matrix::{scan_keys, Column, Row, StateMatrix};
-use crate::keyboard::Side;
+use crate::keyboard::Keyboard;
+use crate::layout::Side;
 use crate::sk6812::{color_as_u32, LedController};
 
-use cortex_m::delay::Delay;
 use cortex_m::prelude::*;
 
 use defmt::*;
@@ -36,12 +35,8 @@ use usbd::{
 
 use crate::key_codes::KeyCode::{self, *};
 use hal::fugit::ExtU32;
-//use hal::fugit::RateExtU32;
-use hal::gpio::{
-    DynPinId, FunctionPio0, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullNone, PullUp,
-};
+use hal::gpio::{FunctionPio0, FunctionSioOutput, Pin, PullDown};
 use hal::pio::PIOExt;
-//use hal::uart::{DataBits, StopBits, UartConfig};
 use usbd_hid::{
     descriptor::{KeyboardReport, SerializedDescriptor},
     hid_class::{
@@ -74,7 +69,6 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     let timer = hal::Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
     let pins = hal::gpio::Pins::new(
@@ -113,6 +107,9 @@ fn main() -> ! {
     };
 
     let (mut cols, mut rows, led_pin, mut data_pin) = initialize_pins(&side, pins);
+    let mut keyboard_delay =
+        cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    let mut keyboard = Keyboard::new(side, rows, cols, keyboard_delay);
 
     let led_pin_id: u8 = led_pin.id().num;
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
@@ -135,7 +132,7 @@ fn main() -> ! {
 
         if scan_countdown.wait().is_ok() {
             info!("scan keys");
-            let state = scan_keys(&mut rows, &mut cols, &mut delay);
+            let state = keyboard.matrix.scan_keys();
             debug!("build report");
             let report = build_report(&state, key_mapping);
             hid.push_input(&report).ok();
