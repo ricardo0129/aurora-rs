@@ -6,7 +6,7 @@ mod keyboard;
 mod layout;
 mod sk6812;
 
-use crate::keyboard::key_matrix::{scan_keys, Column, Row, StateMatrix};
+use crate::keyboard::key_matrix::{Column, OutPin, PioPin, Row, StateMatrix};
 use crate::keyboard::Keyboard;
 use crate::layout::Side;
 use crate::sk6812::{color_as_u32, LedController};
@@ -33,9 +33,9 @@ use usbd::{
     device::{UsbDeviceBuilder, UsbVidPid},
 };
 
-use crate::key_codes::KeyCode::{self, *};
+use crate::key_codes::KeyCode::{self};
 use hal::fugit::ExtU32;
-use hal::gpio::{FunctionPio0, FunctionSioOutput, Pin, PullDown};
+use hal::gpio::{FunctionPio0, Pin, PullDown};
 use hal::pio::PIOExt;
 use usbd_hid::{
     descriptor::{KeyboardReport, SerializedDescriptor},
@@ -46,6 +46,9 @@ use usbd_hid::{
 #[link_section = ".boot2"]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
+const EXTERNAL_XTAL_FREQ_HZ: u32 = 12_000_000;
+const SCAN_LOOP_INTERVAL_MS: u32 = 10;
+const LED_COUNT: usize = 17;
 
 #[rp2040_hal::entry]
 fn main() -> ! {
@@ -56,9 +59,8 @@ fn main() -> ! {
     let sio = Sio::new(pac.SIO);
 
     // External high-speed crystal on the pico board is 12Mhz
-    let external_xtal_freq_hz = 12_000_000u32;
     let clocks = init_clocks_and_plls(
-        external_xtal_freq_hz,
+        EXTERNAL_XTAL_FREQ_HZ,
         pac.XOSC,
         pac.CLOCKS,
         pac.PLL_SYS,
@@ -107,19 +109,19 @@ fn main() -> ! {
     };
 
     let (mut cols, mut rows, led_pin, mut data_pin) = initialize_pins(&side, pins);
-    let mut keyboard_delay =
-        cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    let keyboard_delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     let mut keyboard = Keyboard::new(side, rows, cols, keyboard_delay);
 
     let led_pin_id: u8 = led_pin.id().num;
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
     let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
-    let mut leds: LedController<17> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
+    let mut leds: LedController<LED_COUNT> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
 
     let mut scan_countdown = timer.count_down();
-    scan_countdown.start(10u32.millis());
+    scan_countdown.start(SCAN_LOOP_INTERVAL_MS.millis());
+
     let colors: [u32; 3] = [
-        color_as_u32(0, 120, 0),
+        color_as_u32(60, 32, 0),
         color_as_u32(20, 30, 20),
         color_as_u32(127, 44, 12),
     ];
@@ -145,12 +147,7 @@ fn main() -> ! {
 pub fn initialize_pins(
     side: &Side,
     pins: gpio::bank0::Pins,
-) -> (
-    [Column; layout::COLS],
-    [Row; layout::ROWS],
-    Pin<hal::gpio::bank0::Gpio0, FunctionPio0, PullDown>,
-    Pin<hal::gpio::bank0::Gpio1, FunctionSioOutput, PullDown>,
-) {
+) -> ([Column; layout::COLS], [Row; layout::ROWS], PioPin, OutPin) {
     match side {
         //LEFT SIDE
         //rows: 27 28 26 22
@@ -178,8 +175,8 @@ pub fn initialize_pins(
                     .into_pull_type()
                     .into_dyn_pin(),
             ];
-            let led_pin: Pin<_, FunctionPio0, _> = pins.gpio0.into_function();
-            let data_pin = pins.gpio1.into_push_pull_output();
+            let led_pin: Pin<_, FunctionPio0, PullDown> = pins.gpio0.into_function().into_dyn_pin();
+            let data_pin = pins.gpio1.into_push_pull_output().into_dyn_pin();
             (cols, rows, led_pin, data_pin)
         }
         //RIGHT SIDE
@@ -207,8 +204,8 @@ pub fn initialize_pins(
                     .into_pull_type()
                     .into_dyn_pin(),
             ];
-            let led_pin: Pin<_, FunctionPio0, _> = pins.gpio0.into_function();
-            let data_pin = pins.gpio1.into_push_pull_output();
+            let led_pin: Pin<_, FunctionPio0, PullDown> = pins.gpio0.into_function().into_dyn_pin();
+            let data_pin = pins.gpio1.into_push_pull_output().into_dyn_pin();
             (cols, rows, led_pin, data_pin)
         }
     }

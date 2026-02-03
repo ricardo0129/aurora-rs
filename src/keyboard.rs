@@ -11,8 +11,6 @@ use key_matrix::KeyMatrix;
 use keyboard_state::KeyboardState;
 use layout::{Layout, Side};
 
-type Unimplemented = bool;
-
 pub struct Keyboard {
     side: Side,
     pub matrix: KeyMatrix,
