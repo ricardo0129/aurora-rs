@@ -110,15 +110,14 @@ fn main() -> ! {
 
     let (mut cols, mut rows, led_pin, mut data_pin) = initialize_pins(&side, pins);
     let keyboard_delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
-    let mut keyboard = Keyboard::new(side, rows, cols, keyboard_delay);
+    let mut scan_countdown = timer.count_down();
+    scan_countdown.start(SCAN_LOOP_INTERVAL_MS.millis());
+    let mut keyboard = Keyboard::new(side, rows, cols, keyboard_delay, dev, hid, scan_countdown);
 
     let led_pin_id: u8 = led_pin.id().num;
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
     let sys_clk = clocks.system_clock.freq().to_Hz() as f32;
     let mut leds: LedController<LED_COUNT> = LedController::new(&mut pio, sm0, led_pin_id, sys_clk);
-
-    let mut scan_countdown = timer.count_down();
-    scan_countdown.start(SCAN_LOOP_INTERVAL_MS.millis());
 
     let colors: [u32; 3] = [
         color_as_u32(60, 32, 0),
@@ -130,17 +129,7 @@ fn main() -> ! {
     }
     leds.show();
     loop {
-        dev.poll(&mut [&mut hid]);
-
-        if scan_countdown.wait().is_ok() {
-            info!("scan keys");
-            let state = keyboard.matrix.scan_keys();
-            debug!("build report");
-            let report = build_report(&state, key_mapping);
-            hid.push_input(&report).ok();
-        }
-        // drop received data
-        hid.pull_raw_output(&mut [0; 64]).ok();
+        keyboard.tick();
     }
 }
 
@@ -208,32 +197,5 @@ pub fn initialize_pins(
             let data_pin = pins.gpio1.into_push_pull_output().into_dyn_pin();
             (cols, rows, led_pin, data_pin)
         }
-    }
-}
-
-fn build_report(
-    matrix: &StateMatrix,
-    key_mapping: &[[KeyCode; layout::COLS]; layout::ROWS],
-) -> KeyboardReport {
-    let mut keycodes = [0u8; 6];
-    let mut keycode_count = 0;
-    let mut push_key = |keycode: u8| {
-        keycodes[keycode_count] = keycode;
-        keycode_count += 1;
-    };
-    let modifier = 0;
-    for (row_idx, row) in matrix.iter().enumerate() {
-        for (col_idx, &pressed) in row.iter().enumerate() {
-            if pressed {
-                push_key(key_mapping[row_idx][col_idx] as u8);
-            }
-        }
-    }
-
-    KeyboardReport {
-        modifier,
-        reserved: 0,
-        leds: 0,
-        keycodes,
     }
 }

@@ -1,7 +1,7 @@
 //https://github.com/hathach/tinyusb/blob/master/src/class/hid/hid.h
 #[allow(unused)]
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum KeyCode {
     A = 0x04,
     B = 0x05,
