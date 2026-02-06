@@ -15,7 +15,7 @@ pub enum Side {
 pub enum KeyAction {
     KeyDown { key: KeyCode },
     KeyUp { key: KeyCode },
-    LayerPush { layer: u8 },
+    //LayerPush { layer: u8 },
 }
 
 pub const ROWS: usize = 3;
@@ -55,12 +55,17 @@ impl Layout {
                 KeyEvent::Press { row, col } => {
                     events
                         .push(KeyAction::KeyDown {
-                            key: self.layers[0][row as usize][col as usize],
+                            key: self.layers[self.current_layer][row as usize][col as usize],
                         })
                         .unwrap();
                 }
-                KeyEvent::Release { row, col } => {}
-                KeyEvent::None => {}
+                KeyEvent::Release { row, col } => {
+                    events
+                        .push(KeyAction::KeyUp {
+                            key: self.layers[self.current_layer][row as usize][col as usize],
+                        })
+                        .unwrap();
+                }
             }
         }
         events

@@ -3,10 +3,13 @@ pub mod key_matrix;
 pub mod keyboard_state;
 
 use crate::communication;
+use crate::communication::transport::TxDataPin;
 use crate::keyboard::key_matrix::{Column, Row};
 use crate::layout::{self, KeyAction};
 use communication::transport::{SerialTransport, Transport};
 use cortex_m::delay::Delay;
+use defmt::*;
+use defmt_rtt as _;
 use heapless::Vec;
 use key_matrix::KeyMatrix;
 use keyboard_state::KeyboardState;
@@ -14,32 +17,21 @@ use layout::{Layout, Side};
 use rp2040_hal as hal;
 
 use hal::usb::UsbBus;
-use usb_device as usbd;
-use usbd::{
-    class_prelude::UsbBusAllocator,
-    device::{UsbDeviceBuilder, UsbVidPid},
-};
-
-use usbd_hid::{
-    descriptor::{KeyboardReport, SerializedDescriptor},
-    hid_class::{
-        HIDClass, HidClassSettings, HidCountryCode, HidProtocol, HidSubClass, ProtocolModeConfig,
-    },
-};
+use usbd_hid::{descriptor::KeyboardReport, hid_class::HIDClass};
 
 use cortex_m::prelude::_embedded_hal_timer_CountDown;
 use rp2040_hal::timer::CountDown;
 use usb_device::prelude::UsbDevice;
 
 pub struct Keyboard<'a> {
-    side: Side,
-    pub matrix: KeyMatrix,
-    transport: Transport,
+    matrix: KeyMatrix,
+    //transport: Transport,
     layout: Layout,
     state: KeyboardState,
     dev: UsbDevice<'a, rp2040_hal::usb::UsbBus>,
     hid: HIDClass<'a, UsbBus>,
     scan_countdown: CountDown,
+    delay: Delay,
 }
 
 impl<'a> Keyboard<'a> {
@@ -51,17 +43,18 @@ impl<'a> Keyboard<'a> {
         dev: UsbDevice<'a, rp2040_hal::usb::UsbBus>,
         hid: HIDClass<'a, UsbBus>,
         scan_countdown: CountDown,
+        data_pin: TxDataPin,
     ) -> Self {
-        let mut matrix = KeyMatrix::new(rows, cols, delay);
+        let matrix = KeyMatrix::new(rows, cols);
         Self {
-            side,
             matrix,
             layout: Layout::new(&side),
-            transport: Transport::Serial(SerialTransport {}),
+            //transport: Transport::Serial(SerialTransport::new(data_pin)),
             state: KeyboardState::new(),
             dev,
             hid,
             scan_countdown,
+            delay,
         }
     }
 
@@ -72,17 +65,38 @@ impl<'a> Keyboard<'a> {
 
         if self.scan_countdown.wait().is_ok() {
             // 1. Scan local keys
-            let local = self.matrix.scan_keys();
+            let local = self.matrix.scan_keys(&mut self.delay);
             // 2. Exchange state with other half
+            /*
+            let _other = match &mut self.transport {
+                Transport::Serial(transport) => {
+                    transport.write_byte(0x55_u8, &mut self.delay);
+                }
+            };
+            */
             // 3. Update merged state
             let events = self.state.update(local);
             // 4. Process layout
             let key_actions = self.layout.process(events);
+            self.process_actions(&key_actions);
             let report = build_report(key_actions);
             self.hid.push_input(&report).ok();
         }
         // drop received data
         self.hid.pull_raw_output(&mut [0; 64]).ok();
+    }
+
+    pub fn process_actions(&mut self, key_actions: &Vec<KeyAction, 20>) {
+        for action in key_actions {
+            match action {
+                KeyAction::KeyUp { key: keycode } => {
+                    debug!("keycode up: {}", *keycode as u8);
+                }
+                KeyAction::KeyDown { key: keycode } => {
+                    debug!("keycode up: {}", *keycode as u8);
+                }
+            }
+        }
     }
 }
 

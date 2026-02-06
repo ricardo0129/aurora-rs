@@ -6,7 +6,7 @@ mod keyboard;
 mod layout;
 mod sk6812;
 
-use crate::keyboard::key_matrix::{Column, OutPin, PioPin, Row, StateMatrix};
+use crate::keyboard::key_matrix::{Column, OutPin, PioPin, Row};
 use crate::keyboard::Keyboard;
 use crate::layout::Side;
 use crate::sk6812::{color_as_u32, LedController};
@@ -33,7 +33,6 @@ use usbd::{
     device::{UsbDeviceBuilder, UsbVidPid},
 };
 
-use crate::key_codes::KeyCode::{self};
 use hal::fugit::ExtU32;
 use hal::gpio::{FunctionPio0, Pin, PullDown};
 use hal::pio::PIOExt;
@@ -43,6 +42,7 @@ use usbd_hid::{
         HIDClass, HidClassSettings, HidCountryCode, HidProtocol, HidSubClass, ProtocolModeConfig,
     },
 };
+
 #[link_section = ".boot2"]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
@@ -89,7 +89,7 @@ fn main() -> ! {
     );
     let bus_allocator = UsbBusAllocator::new(bus);
     let vid_pid = UsbVidPid(0x6666, 0x0789);
-    let mut hid = HIDClass::new_with_settings(
+    let hid = HIDClass::new_with_settings(
         &bus_allocator,
         KeyboardReport::desc(),
         10,
@@ -100,19 +100,24 @@ fn main() -> ! {
             locale: HidCountryCode::NotSupported,
         },
     );
-    let mut dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
+    let dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
 
     let side: Side = Side::LEFT;
-    let key_mapping = match side {
-        Side::LEFT => &layout::L_LAYER,
-        Side::RIGHT => &layout::R_LAYER,
-    };
 
-    let (mut cols, mut rows, led_pin, mut data_pin) = initialize_pins(&side, pins);
+    let (cols, rows, led_pin, data_pin) = initialize_pins(&side, pins);
     let keyboard_delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     let mut scan_countdown = timer.count_down();
     scan_countdown.start(SCAN_LOOP_INTERVAL_MS.millis());
-    let mut keyboard = Keyboard::new(side, rows, cols, keyboard_delay, dev, hid, scan_countdown);
+    let mut keyboard = Keyboard::new(
+        side,
+        rows,
+        cols,
+        keyboard_delay,
+        dev,
+        hid,
+        scan_countdown,
+        data_pin,
+    );
 
     let led_pin_id: u8 = led_pin.id().num;
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
