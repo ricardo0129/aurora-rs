@@ -24,8 +24,9 @@ use rp2040_hal::timer::CountDown;
 use usb_device::prelude::UsbDevice;
 
 pub struct Keyboard<'a> {
+    side: Side,
     matrix: KeyMatrix,
-    //transport: Transport,
+    transport: Transport,
     layout: Layout,
     state: KeyboardState,
     dev: UsbDevice<'a, rp2040_hal::usb::UsbBus>,
@@ -47,9 +48,10 @@ impl<'a> Keyboard<'a> {
     ) -> Self {
         let matrix = KeyMatrix::new(rows, cols);
         Self {
+            side,
             matrix,
             layout: Layout::new(&side),
-            //transport: Transport::Serial(SerialTransport::new(data_pin)),
+            transport: Transport::Serial(SerialTransport::new(data_pin)),
             state: KeyboardState::new(),
             dev,
             hid,
@@ -67,13 +69,16 @@ impl<'a> Keyboard<'a> {
             // 1. Scan local keys
             let local = self.matrix.scan_keys(&mut self.delay);
             // 2. Exchange state with other half
-            /*
             let _other = match &mut self.transport {
-                Transport::Serial(transport) => {
-                    transport.write_byte(0x55_u8, &mut self.delay);
-                }
+                Transport::Serial(transport) => match self.side {
+                    Side::LEFT => {
+                        transport.write_byte(0x55_u8, &mut self.delay);
+                    }
+                    Side::RIGHT => {
+                        let _byte = transport.read_byte(&mut self.delay);
+                    }
+                },
             };
-            */
             // 3. Update merged state
             let events = self.state.update(local);
             // 4. Process layout
