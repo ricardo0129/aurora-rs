@@ -35,23 +35,27 @@ pub struct Keyboard<'a> {
     delay: Delay,
 }
 
+pub struct KeyboardPins {
+    pub rows: [Row; layout::ROWS],
+    pub cols: [Column; layout::COLS],
+    pub data_pin: TxDataPin,
+}
+
 impl<'a> Keyboard<'a> {
     pub fn new(
         side: Side,
-        rows: [Row; layout::ROWS],
-        cols: [Column; layout::COLS],
+        pins: KeyboardPins,
         delay: Delay,
         dev: UsbDevice<'a, rp2040_hal::usb::UsbBus>,
         hid: HIDClass<'a, UsbBus>,
         scan_countdown: CountDown,
-        data_pin: TxDataPin,
     ) -> Self {
-        let matrix = KeyMatrix::new(rows, cols);
+        let matrix = KeyMatrix::new(pins.rows, pins.cols);
         Self {
             side,
             matrix,
             layout: Layout::new(&side),
-            transport: Transport::Serial(SerialTransport::new(data_pin)),
+            transport: Transport::Serial(SerialTransport::new(pins.data_pin)),
             state: KeyboardState::new(),
             dev,
             hid,
@@ -69,12 +73,12 @@ impl<'a> Keyboard<'a> {
             // 1. Scan local keys
             let local = self.matrix.scan_keys(&mut self.delay);
             // 2. Exchange state with other half
-            let _other = match &mut self.transport {
+            match &mut self.transport {
                 Transport::Serial(transport) => match self.side {
-                    Side::LEFT => {
+                    Side::Left => {
                         transport.write_byte(0x55_u8, &mut self.delay);
                     }
-                    Side::RIGHT => {
+                    Side::Right => {
                         let _byte = transport.read_byte(&mut self.delay);
                     }
                 },

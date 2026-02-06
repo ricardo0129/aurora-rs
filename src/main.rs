@@ -7,7 +7,7 @@ mod layout;
 mod sk6812;
 
 use crate::keyboard::key_matrix::{Column, OutPin, PioPin, Row};
-use crate::keyboard::Keyboard;
+use crate::keyboard::{Keyboard, KeyboardPins};
 use crate::layout::Side;
 use crate::sk6812::{color_as_u32, LedController};
 
@@ -102,22 +102,18 @@ fn main() -> ! {
     );
     let dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
 
-    let side: Side = Side::LEFT;
+    let side: Side = Side::Left;
 
     let (cols, rows, led_pin, data_pin) = initialize_pins(&side, pins);
     let keyboard_delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     let mut scan_countdown = timer.count_down();
     scan_countdown.start(SCAN_LOOP_INTERVAL_MS.millis());
-    let mut keyboard = Keyboard::new(
-        side,
-        rows,
+    let pins = KeyboardPins {
         cols,
-        keyboard_delay,
-        dev,
-        hid,
-        scan_countdown,
+        rows,
         data_pin,
-    );
+    };
+    let mut keyboard = Keyboard::new(side, pins, keyboard_delay, dev, hid, scan_countdown);
 
     let led_pin_id: u8 = led_pin.id().num;
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
@@ -146,7 +142,7 @@ pub fn initialize_pins(
         //LEFT SIDE
         //rows: 27 28 26 22
         //cols: 21 4 5 6 7
-        Side::LEFT => {
+        Side::Left => {
             let cols: [Column; layout::COLS] = [
                 pins.gpio21.into_pull_down_input().into_dyn_pin(),
                 pins.gpio4.into_pull_down_input().into_dyn_pin(),
@@ -176,7 +172,7 @@ pub fn initialize_pins(
         //RIGHT SIDE
         //rows: 22 26 27 20
         //cols: 9 8 7 6 5
-        Side::RIGHT => {
+        Side::Right => {
             let cols: [Column; layout::COLS] = [
                 pins.gpio9.into_pull_down_input().into_dyn_pin(),
                 pins.gpio8.into_pull_down_input().into_dyn_pin(),

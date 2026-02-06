@@ -18,21 +18,21 @@ impl KeyboardState {
 
     pub fn update(&mut self, state: StateMatrix) -> EventBuffer {
         let mut buf: Vec<KeyEvent, MAX_EVENTS> = Vec::new();
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                if self.current_state[row][col] == state[row][col] {
+        for (row_index, row) in state.iter().enumerate() {
+            for (col_index, state_value) in row.iter().enumerate() {
+                if self.current_state[row_index][col_index] == *state_value {
                     continue;
                 }
-                if state[row][col] {
+                if *state_value {
                     buf.push(KeyEvent::Press {
-                        row: (row as u8),
-                        col: (col as u8),
+                        row: (row_index as u8),
+                        col: (col_index as u8),
                     })
                     .expect("Eventbuffer full, skipping event");
                 } else {
                     buf.push(KeyEvent::Release {
-                        row: (row as u8),
-                        col: (col as u8),
+                        row: (row_index as u8),
+                        col: (col_index as u8),
                     })
                     .expect("Eventbuffer full, skipping event");
                 }

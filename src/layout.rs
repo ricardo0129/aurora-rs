@@ -7,8 +7,8 @@ use crate::{
 
 #[derive(Copy, Clone)]
 pub enum Side {
-    LEFT,
-    RIGHT,
+    Left,
+    Right,
 }
 
 #[derive(Debug)]
@@ -38,11 +38,11 @@ pub struct Layout {
 impl Layout {
     pub fn new(side: &Side) -> Self {
         match side {
-            Side::LEFT => Layout {
+            Side::Left => Layout {
                 layers: [L_LAYER; 1],
                 current_layer: 0,
             },
-            Side::RIGHT => Layout {
+            Side::Right => Layout {
                 layers: [R_LAYER; 1],
                 current_layer: 0,
             },
