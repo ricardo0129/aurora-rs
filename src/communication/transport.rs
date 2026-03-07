@@ -5,6 +5,8 @@ use rp2040_hal as hal;
 use rp2040_hal::gpio::*;
 const BAUD: u32 = 9600;
 const BIT_US: u32 = 1000000 / BAUD;
+const TIMEOUT_US: u32 = 100;
+const SERIAL_DELAY: u32 = 32;
 
 pub type TxDataPin = Pin<DynPinId, FunctionSio<SioOutput>, PullDown>;
 
@@ -14,6 +16,12 @@ pub enum Transport {
 
 pub struct SerialTransport {
     data_pin: TxDataPin,
+}
+
+#[derive(Debug)]
+pub enum SerialError {
+    Timeout,
+    ChecksumMismatch,
 }
 
 impl SerialTransport {
@@ -51,26 +59,4 @@ impl SerialTransport {
         delay.delay_us(BIT_US);
         data
     }
-
-    /*
-    pub fn is_high(&mut self) -> bool {
-        self.data_pin
-            .as_input()
-            .is_high()
-            .expect("couldn't read from pin")
-    }
-
-    fn sync_recv(&mut self, delay: &mut Delay) {
-        self.data_pin.set_low();
-    }
-
-    fn sync_send(&mut self, delay: &mut Delay) {
-        self.data_pin.set_high();
-        while self.is_high() {}
-    }
-
-    pub fn send_transaction(&mut self, delay: &mut Delay) {}
-
-    pub fn receive_transaction(&mut self, delay: &mut Delay) {}
-    */
 }

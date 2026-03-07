@@ -7,41 +7,54 @@ mod layout;
 mod sk6812;
 
 use crate::keyboard::key_matrix::{Column, OutPin, PioPin, Row};
-use crate::keyboard::{Keyboard, KeyboardPins};
+//use crate::keyboard::{Keyboard, KeyboardPins};
 use crate::layout::Side;
-use crate::sk6812::{color_as_u32, LedController};
-
-use cortex_m::prelude::*;
+//use crate::sk6812::{color_as_u32, LedController};
 
 use defmt::*;
 use defmt_rtt as _;
-use panic_probe as _;
 
+use embedded_hal::i2c::I2c;
+//use embedded_hal::i2c::I2c;
+use panic_probe as _;
 // Provide an alias for our hal so we can switch targets quickly.
+use hal::fugit::RateExtU32;
+
+use cortex_m::prelude::_embedded_hal_timer_CountDown;
+use hal::gpio::FunctionI2C;
 use rp2040_hal as hal;
+use rp2040_hal::gpio::bank0::{Gpio16, Gpio17, Gpio2, Gpio3};
+use rp2040_hal::gpio::PullUp;
+use rp2040_hal::i2c::Peripheral;
+use rp2040_hal::pac::{I2C0, I2C1};
 
 use hal::{
     clocks::{init_clocks_and_plls, Clock},
-    gpio, pac,
+    gpio,
+    pac,
     sio::Sio,
-    usb::UsbBus,
+    //usb::UsbBus,
     watchdog::Watchdog,
 };
+/*
 use usb_device as usbd;
 use usbd::{
     class_prelude::UsbBusAllocator,
     device::{UsbDeviceBuilder, UsbVidPid},
 };
+*/
 
 use hal::fugit::ExtU32;
 use hal::gpio::{FunctionPio0, Pin, PullDown};
-use hal::pio::PIOExt;
+//use hal::pio::PIOExt;
+/*
 use usbd_hid::{
-    descriptor::{KeyboardReport, SerializedDescriptor},
+    descriptor::{KeyboardRport, SerializedDescriptor},
     hid_class::{
         HIDClass, HidClassSettings, HidCountryCode, HidProtocol, HidSubClass, ProtocolModeConfig,
     },
 };
+*/
 
 #[link_section = ".boot2"]
 #[used]
@@ -80,40 +93,120 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let bus = UsbBus::new(
-        pac.USBCTRL_REGS,
-        pac.USBCTRL_DPRAM,
-        clocks.usb_clock,
-        true,
-        &mut pac.RESETS,
-    );
-    let bus_allocator = UsbBusAllocator::new(bus);
-    let vid_pid = UsbVidPid(0x6666, 0x0789);
-    let hid = HIDClass::new_with_settings(
-        &bus_allocator,
-        KeyboardReport::desc(),
-        10,
-        HidClassSettings {
-            subclass: HidSubClass::NoSubClass,
-            protocol: HidProtocol::Keyboard,
-            config: ProtocolModeConfig::ForceReport,
-            locale: HidCountryCode::NotSupported,
-        },
-    );
-    let dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
+    /*
+        let bus = UsbBus::new(
+            pac.USBCTRL_REGS,
+            pac.USBCTRL_DPRAM,
+            clocks.usb_clock,
+            true,
+            &mut pac.RESETS,
+        );
+        let bus_allocator = UsbBusAllocator::new(bus);
+        let vid_pid = UsbVidPid(0x6666, 0x0789);
+        let hid = HIDClass::new_with_settings(
+            &bus_allocator,
+            KeyboardReport::desc(),
+            10,
+            HidClassSettings {
+                subclass: HidSubClass::NoSubClass,
+                protocol: HidProtocol::Keyboard,
+                config: ProtocolModeConfig::ForceReport,
+                locale: HidCountryCode::NotSupported,
+            },
+        );
+
+        let dev = UsbDeviceBuilder::new(&bus_allocator, vid_pid).build();
+    */
 
     let side: Side = Side::Left;
 
-    let (cols, rows, led_pin, data_pin) = initialize_pins(&side, pins);
-    let keyboard_delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    //let (cols, rows, led_pin, data_pin) = initialize_pins(&side, pins);
+
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     let mut scan_countdown = timer.count_down();
     scan_countdown.start(SCAN_LOOP_INTERVAL_MS.millis());
-    let pins = KeyboardPins {
-        cols,
-        rows,
-        data_pin,
-    };
-    let mut keyboard = Keyboard::new(side, pins, keyboard_delay, dev, hid, scan_countdown);
+    let sda_pin: Pin<_, FunctionI2C, PullUp> = pins.gpio2.reconfigure();
+    let scl_pin: Pin<_, FunctionI2C, PullUp> = pins.gpio3.reconfigure();
+    // Create the I2C drive, using the two pre-configured pins. This will fail
+    // at compile time if the pins are in the wrong mode, or if this I2C
+    // peripheral isn't available on these pins!
+    type I2CController = rp2040_hal::I2C<
+        I2C1,
+        (
+            rp2040_hal::gpio::Pin<Gpio2, FunctionI2C, PullUp>,
+            rp2040_hal::gpio::Pin<Gpio3, FunctionI2C, PullUp>,
+        ),
+    >;
+    type I2CPeripheral = rp2040_hal::I2C<
+        I2C1,
+        (
+            rp2040_hal::gpio::Pin<Gpio2, FunctionI2C, PullUp>,
+            rp2040_hal::gpio::Pin<Gpio3, FunctionI2C, PullUp>,
+        ),
+        Peripheral,
+    >;
+    let addr: u8 = 0x2C;
+    let mut i2c_controller: Option<I2CController> = None;
+    let mut i2c_peripheral: Option<I2CPeripheral> = None;
+    match side {
+        Side::Right => {
+            let i2c = hal::I2C::new_controller(
+                pac.I2C1,
+                sda_pin,
+                scl_pin,
+                400.kHz(),
+                &mut pac.RESETS,
+                clocks.system_clock.freq(),
+            );
+            i2c_controller = Some(i2c);
+        }
+        Side::Left => {
+            let i2c = hal::I2C::new_peripheral_event_iterator(
+                pac.I2C1,
+                sda_pin,
+                scl_pin,
+                &mut pac.RESETS,
+                addr,
+            );
+            i2c_peripheral = Some(i2c);
+        }
+    }
+
+    use embedded_hal::digital::OutputPin;
+    let mut led_pin = pins.gpio17.into_push_pull_output().into_dyn_pin();
+    let mut buf: [u8; 10] = [0; 10];
+    loop {
+        match side {
+            Side::Left => {
+                if let Some(i2c) = i2c_peripheral.as_mut() {
+                    let result = i2c.read(&mut buf);
+                    if result > 0 || buf[0] > 0 {
+                        led_pin.set_high().unwrap();
+                    } else {
+                        led_pin.set_high().unwrap();
+                        led_pin.set_low().unwrap();
+                    }
+                    info!("read from right: {:?}", &buf);
+                }
+            }
+            Side::Right => {
+                if let Some(i2c) = i2c_controller.as_mut() {
+                    let result = i2c.write(addr, &[1, 2, 3, 4, 5]);
+                    if let Ok(d) = result {
+                        info!("wrote to left");
+                    }
+                }
+            }
+        }
+    }
+    /*
+        let pins = KeyboardPins {
+            cols,
+            rows,
+            data_pin,
+        };
+        let mut keyboard = Keyboard::new(side, pins, keyboard_delay, dev, hid, scan_countdown);
+
 
     let led_pin_id: u8 = led_pin.id().num;
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
@@ -128,10 +221,7 @@ fn main() -> ! {
     for i in 0..17 {
         leds.set_pixel(i, colors[0]);
     }
-    leds.show();
-    loop {
-        keyboard.tick();
-    }
+    */
 }
 
 pub fn initialize_pins(
