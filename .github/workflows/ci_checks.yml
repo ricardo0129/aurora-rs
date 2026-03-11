@@ -5,8 +5,6 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
 
-rust_target: &rust_target thumbv7em-none-eabihf
-
 jobs:
   building:
     name: Building
@@ -26,7 +24,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          target: *rust_target
+          target: thumbv7em-none-eabihf
       - run: cargo install flip-link
       - run: cargo build --all
       - run: cargo build --all --release
@@ -40,7 +38,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-          target: *rust_target
+          target: thumbv7em-none-eabihf
       - run: cargo clippy --all-features -- --deny=warnings
   formatting:
     name: Formatting
@@ -52,5 +50,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-          target: *rust_target
+          target: thumbv7em-none-eabihf
       - run: cargo fmt -- --check
