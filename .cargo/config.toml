@@ -1,7 +1,7 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # Choose a default "cargo run" tool (see README for more info)
 runner = ["probe-run", "--chip", "nRF52840_xxAA"]
-linker = "flip-link"
+#runner = ["cargo-flip", "run", "--chip", "nRF52840_xxAA"]
 rustflags = [
   "-C", "linker=flip-link",
   "-C", "link-arg=-Tlink.x",
